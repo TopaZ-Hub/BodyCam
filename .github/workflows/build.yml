@@ -18,8 +18,26 @@ jobs:
           ls -la
           COUNT=$(ls *.zip 2>/dev/null | wc -l)
           if [ "$COUNT" -ne 1 ]; then echo "BŁĄD: w repo musi być dokładnie 1 plik .zip, jest: $COUNT"; ls *.zip; exit 1; fi
-          unzip -o *.zip -d rozpakowane
-          cd "$(dirname "$(find rozpakowane -name gradlew | head -1)")"
+          python3 - <<'EOF'
+          import zipfile, glob, os
+          z = zipfile.ZipFile(glob.glob('*.zip')[0])
+          names = z.namelist()
+          for n in names:
+              clean = n.replace('\\', '/')
+              if clean.endswith('/'):
+                  continue
+              # pomiń "plik", który ma taką samą nazwę jak folder (błąd pakowania na telefonie)
+              if any(o.replace('\\', '/').startswith(clean + '/') for o in names):
+                  continue
+              dst = os.path.join('rozpakowane', clean)
+              os.makedirs(os.path.dirname(dst), exist_ok=True)
+              with z.open(n) as src, open(dst, 'wb') as out:
+                  out.write(src.read())
+          print('Rozpakowano')
+          EOF
+          GW=$(find rozpakowane -name gradlew -not -path "*/build/*" | head -1)
+          if [ -z "$GW" ]; then echo "BŁĄD: nie ma gradlew w zipie"; find rozpakowane -maxdepth 3; exit 1; fi
+          cd "$(dirname "$GW")"
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Bodycam.apk"
